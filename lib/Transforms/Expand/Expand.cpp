@@ -59,35 +59,69 @@ bool Expand::processBasicBlock(BasicBlock *BB, Function *F, LLVMContext &C)
 
     LOG() << *BB << "\n";
 
-#if 0
-    if (isa<BranchInst>(TI)) {
-        BranchInst *BI = cast<BranchInst>(TI);
-        if (!BI) {
-            continue;
-        }
-        if (!BI->isConditional()) { continue; }
-
-        Value *condition = BI->getCondition();
-        if (!condition) {
-            continue;
-        }
-        if (isa<ICmpInst>(condition)) {
-            ICmpInst *II = cast<ICmpInst>(condition);
-            if (!II || !II->isEquality()) {
+    // Process each instruction
+    for (auto &Inst : *BB) {
+        /* branch instruction */
+        if (isa<BranchInst>(Inst)) {
+            BranchInst *BI = cast<BranchInst>(&Inst);
+            if (!BI || !BI->isConditional()) {
                 continue;
             }
-            errs() << "Get ICMP EQ/NEQ instruction: " << *condition << ", in function: " << F->getName() << "\n";
-            mod != expandICMPInst(BB, II, BI, C);
-            errs() << "Rebuild done!\n";
+
+            Value *condition = BI->getCondition();
+            if (!condition) {
+                continue;
+            }
+
+            if (isa<ICmpInst>(condition)) {
+                ICmpInst *II = cast<ICmpInst>(condition);
+                if (!II || !II->isEquality()) {
+                    continue;
+                }
+
+                LOG() << "Get ICMP EQ/NEQ instruction: " << *condition 
+                      << ", in function: " << F->getName() << "\n";
+                mod |= handleICMPInst(BB, II, BI, C);
+                LOG() << "Rebuild ICMP instruction done!\n";
+            }
+
+            continue;
+        }
+
+        /* call instruction */
+        if (isa<CallInst>(Inst)) {
+            CallInst *CI = cast<CallInst>(&Inst);
+            if (!CI) {
+                continue;
+            }
+
+            Function *callee = CI->getCalledFunction();
+            if (!callee) {
+                LOG() << "Ignore indirected function invocation" << "\n";
+                continue;
+            }
+
+            std::string calleeName = callee->getName().str();
+
+            LOG() << "Get call instruction: " << *CI << " in function " << F->getName() << "\n";
+            LOG() << "Callee is " << calleeName << "\n";
+
+            if (calleeName == "memcmp") {
+                mod |= handleCallMemcmpInst(BB, CI, C);
+            } else {
+                //TODO: add other functions
+            }
+
+            continue;
         }
     }
-#endif
 
     return mod;
 }
 
 bool Expand::handleICMPInst(BasicBlock *BB, ICmpInst *II, BranchInst *BI, LLVMContext & C)
 {
+#if 0
     bool is_unsigned = false;
 
     // 1st: Get the operands
@@ -173,7 +207,7 @@ bool Expand::handleICMPInst(BasicBlock *BB, ICmpInst *II, BranchInst *BI, LLVMCo
 
         return true;
     }
-
+#endif
     return false;
 }
 
@@ -187,8 +221,33 @@ void Expand::getSignedRange(unsigned factor, unsigned &max, unsigned &min)
     //TODO:
 }
 
-bool Expand::handleCallMemcmpInst()
+bool Expand::handleCallMemcmpInst(BasicBlock *BB, CallInst *CI, LLVMContext &C)
 {
+    assert(CI->getNumArgOperands() == 3 && "Weird memcmp instruction's operands");
+
+    Value *firstOperand  = CI->getArgOperand(0);
+    Value *secondOperand = CI->getArgOperand(1);
+    Value *lenOperand    = CI->getArgOperand(2);
+
+    LOG() << "First operand is " << *firstOperand << "\n";
+    LOG() << "Second operand is " << *secondOperand << "\n";
+    LOG() << "Length operand is " << *lenOperand << "\n";
+
+    bool is_first_operand_const = isa<Constant>(firstOperand);
+    bool is_second_operand_const = isa<Constant>(secondOperand);
+
+    // return if both operands are constant or not.
+    if (is_first_operand_const == is_second_operand_const) {
+        return false;
+    }
+    
+    LOG() << "We are going to handle this memcmp call instruction\n";
+    Value *target = is_first_operand_const ? firstOperand : secondOperand;
+    Value *var    = is_first_operand_const ? secondOperand : firstOperand;
+
+    // process target as an arry with load * getElementPtr
+
+
     return false;
 }
 

@@ -41,7 +41,7 @@ private:
     void getSignedRange(unsigned factor, unsigned &, unsigned &);
 
     /* memcmp function related methods */
-    bool handleCallMemcmpInst();
+    bool handleCallMemcmpInst(BasicBlock*, CallInst*, LLVMContext &);
 
     llvm::raw_ostream &LOG() const;
 
