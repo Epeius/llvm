@@ -4,43 +4,28 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include "llvm/PassRegistry.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Support/FileSystem.h"
+
+#include "Expand.h"
 
 using namespace llvm;
-namespace {
-
-#define FACTORS 2 
-
-struct Expand : public FunctionPass {
-    static char ID;
-    Expand() : FunctionPass(ID) {}
-
-    bool runOnFunction(Function &F) override ;
-
-    bool expandICMPInst(BasicBlock *, ICmpInst *, BranchInst*, LLVMContext &);
-
-    void getUnsignedRange(unsigned factor, unsigned , APInt, APInt, unsigned &, unsigned &);
-    void getSignedRange(unsigned factor, unsigned &, unsigned &);
-
-}; // end of struct Expand
-}  // end of anonymous namespace
-
-char Expand::ID = 0;
 
 bool Expand::runOnFunction(Function &F)
 {
     Module *M = F.getParent();
     std::string moduleName = M->getName().str();
-    errs() << "Entering module: " << moduleName << "\n";
-    if (moduleName != "readelf.c") {
+
+    //TODO: read blacklist config from file
+    LOG() << "Entering module: " << moduleName << "\n";
+    if (moduleName == "readelf.c") {
         return false;
     }
 
-    errs() << "Entering in function: " << F.getName() << "\n";
+    LOG() << "Entering in function: " << F.getName() << "\n";
     LLVMContext &C = F.getContext();
     bool mod = false;
     for (auto &BB : F) {
@@ -50,39 +35,58 @@ bool Expand::runOnFunction(Function &F)
             continue;
         }
 
-        TerminatorInst * TI = BB.getTerminator();
-        if (!TI) {
-            continue;
-        }
-
-        if (isa<BranchInst>(TI)) {
-            BranchInst *BI = cast<BranchInst>(TI);
-            if (!BI) {
-                continue;
-            }
-            if (!BI->isConditional()) { continue; }
-
-            Value *condition = BI->getCondition();
-            if (!condition) {
-                continue;
-            }
-            if (isa<ICmpInst>(condition)) {
-                ICmpInst *II = cast<ICmpInst>(condition);
-                if (!II || !II->isEquality()) {
-                    continue;
-                }
-                errs() << "Get ICMP EQ/NEQ instruction: " << *condition << ", in function: " << F.getName() << "\n";
-                mod != expandICMPInst(&BB, II, BI, C);
-                errs() << "Rebuild done!\n";
-            }
-        }
+        mod |= processBasicBlock(&BB, &F, C);
     }
 
-    errs() << "Function  is : " << F << "\n";
+    LOG() << "Function  is : " << F << "\n";
     return mod;
 }
 
-bool Expand::expandICMPInst(BasicBlock *BB, ICmpInst *II, BranchInst *BI, LLVMContext & C)
+bool Expand::processBasicBlock(BasicBlock *BB, Function *F, LLVMContext &C) 
+{
+    bool mod = false;
+    if (!BB) {
+        LOG() << "Unknown basic block" << "\n";
+        return mod;
+    }
+
+    TerminatorInst * TI = BB->getTerminator();
+    if (!TI) {
+        LOG() << "Basic block:\n " << *BB << "\n";
+        LOG() << "Has no terminator!!!" << "\n";
+        return mod;
+    }
+
+    LOG() << *BB << "\n";
+
+#if 0
+    if (isa<BranchInst>(TI)) {
+        BranchInst *BI = cast<BranchInst>(TI);
+        if (!BI) {
+            continue;
+        }
+        if (!BI->isConditional()) { continue; }
+
+        Value *condition = BI->getCondition();
+        if (!condition) {
+            continue;
+        }
+        if (isa<ICmpInst>(condition)) {
+            ICmpInst *II = cast<ICmpInst>(condition);
+            if (!II || !II->isEquality()) {
+                continue;
+            }
+            errs() << "Get ICMP EQ/NEQ instruction: " << *condition << ", in function: " << F->getName() << "\n";
+            mod != expandICMPInst(BB, II, BI, C);
+            errs() << "Rebuild done!\n";
+        }
+    }
+#endif
+
+    return mod;
+}
+
+bool Expand::handleICMPInst(BasicBlock *BB, ICmpInst *II, BranchInst *BI, LLVMContext & C)
 {
     bool is_unsigned = false;
 
@@ -175,24 +179,39 @@ bool Expand::expandICMPInst(BasicBlock *BB, ICmpInst *II, BranchInst *BI, LLVMCo
 
 void Expand::getUnsignedRange(unsigned factor, unsigned target, APInt vMax, APInt vMin,  unsigned &max, unsigned &min)
 {
-    /*
-    unsigned vMin_value = vMin->getZExtValue();
-    unsigned vMax_value = vMax->getZExtValue();
-
-    unsigned min_item = (target - vMin_value) / FACTORS;
-    if (!min_item) { // This means 
-         
-    }
-    */
-
+    //TODO:
 }
 
 void Expand::getSignedRange(unsigned factor, unsigned &max, unsigned &min)
 {
-    min = 0;
-    max = 0xFFFFFFFF;
+    //TODO:
 }
 
+bool Expand::handleCallMemcmpInst()
+{
+    return false;
+}
+
+/***************************************************************/
+
+void Expand::initLOG()
+{
+    std::string path = "/tmp/expand.log";
+    std::error_code error;
+    llvm::raw_fd_ostream *f = new llvm::raw_fd_ostream(path, error, llvm::sys::fs::F_None);
+    if (!f || error) {
+        llvm::errs() << "Error opening " << path << ": " << error.message() << "\n";
+        exit(-1);
+    }
+
+    m_logFile = f; 
+}
+
+llvm::raw_ostream& Expand::LOG() const 
+{
+    m_logFile->flush();
+    return *m_logFile;
+}
 static RegisterPass<Expand> X("Expand", "Expand Comparison Instruction Pass",
                              false /* Only looks at CFG */,
                              false /* Analysis Pass */);
